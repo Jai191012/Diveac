@@ -1,0 +1,4 @@
+node_modules/
+ventas.db
+ventas.db-shm
+ventas.db-wal
