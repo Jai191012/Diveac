@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro de ventas</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17212b;
+      background: #f2f5f4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 40px 16px;
+    }
+
+    main {
+      width: min(100%, 640px);
+      margin: 0 auto;
+    }
+
+    h1,
+    h2 {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 24px;
+      font-size: clamp(1.7rem, 5vw, 2.2rem);
+    }
+
+    section,
+    form {
+      padding: 24px;
+      border: 1px solid #dce5e1;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgb(23 33 43 / 5%);
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      font-weight: 650;
+    }
+
+    select,
+    input,
+    button {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #b8c7c0;
+      border-radius: 7px;
+      font: inherit;
+    }
+
+    button {
+      border-color: #176b4d;
+      color: #fff;
+      background: #176b4d;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #10563d;
+    }
+
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible {
+      outline: 3px solid #9bd6bd;
+      outline-offset: 2px;
+    }
+
+    #sale-message {
+      min-height: 1.5em;
+      margin: 12px 2px 24px;
+    }
+
+    section button {
+      margin-bottom: 12px;
+    }
+
+    #report p {
+      font-weight: 650;
+    }
+
+    #report ul {
+      padding-left: 22px;
+      line-height: 1.8;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding-top: 24px;
+      }
+
+      section,
+      form {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Registro de ventas del día</h1>
+
+    <form id="sale-form">
+      <label for="product">Producto</label>
+      <select id="product" name="product" required>
+        <option value="">Cargando productos...</option>
+      </select>
+
+      <label for="quantity">Cantidad</label>
+      <input id="quantity" name="quantity" type="number" min="1" step="1" value="1" required>
+
+      <button type="submit">Registrar venta</button>
+    </form>
+    <p id="sale-message" role="status" aria-live="polite"></p>
+
+    <section aria-labelledby="report-heading">
+      <h2 id="report-heading">Informe de ventas</h2>
+      <button id="report-button" type="button">Consultar informe</button>
+      <div id="report" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script>
+    const productSelect = document.querySelector('#product');
+    const saleForm = document.querySelector('#sale-form');
+    const saleMessage = document.querySelector('#sale-message');
+    const reportContainer = document.querySelector('#report');
+    const currency = new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0
+    });
+
+    async function loadProducts() {
+      const response = await fetch('/api/productos');
+      if (!response.ok) {
+        throw new Error('No se pudieron cargar los productos.');
+      }
+
+      const products = await response.json();
+      productSelect.replaceChildren(new Option('Selecciona un producto', ''));
+
+      for (const product of products) {
+        const label = `${product.nombre} - ${currency.format(Number(product.precio))}`;
+        productSelect.add(new Option(label, product.id_producto));
+      }
+    }
+
+    saleForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      saleMessage.textContent = '';
+
+      try {
+        const response = await fetch('/api/ventas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_producto: Number(productSelect.value),
+            cantidad: Number(document.querySelector('#quantity').value)
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || 'No se pudo registrar la venta.');
+        }
+
+        saleMessage.textContent =
+          `${result.mensaje} Total: ${currency.format(Number(result.total_venta))}`;
+        saleForm.reset();
+        await loadProducts();
+      } catch (error) {
+        saleMessage.textContent = error.message;
+      }
+    });
+
+    document.querySelector('#report-button').addEventListener('click', async () => {
+      reportContainer.replaceChildren();
+
+      try {
+        const response = await fetch('/api/informe');
+        if (!response.ok) {
+          throw new Error('No se pudo consultar el informe.');
+        }
+        const report = await response.json();
+
+        const totals = document.createElement('p');
+        totals.textContent =
+          `Ventas registradas: ${report.total_ventas} | Total recaudado: ` +
+          currency.format(Number(report.total_recaudado));
+        reportContainer.append(totals);
+
+        const list = document.createElement('ul');
+        for (const day of report.ventas_por_dia) {
+          const item = document.createElement('li');
+          item.textContent =
+            `${day.fecha}: ${day.cantidad_ventas} ventas, ` +
+            currency.format(Number(day.total_venta));
+          list.append(item);
+        }
+        if (report.ventas_por_dia.length === 0) {
+          const emptyItem = document.createElement('li');
+          emptyItem.textContent = 'Todavía no hay ventas registradas.';
+          list.append(emptyItem);
+        }
+        reportContainer.append(list);
+      } catch (error) {
+        reportContainer.textContent = error.message;
+      }
+    });
+
+    loadProducts().catch((error) => {
+      productSelect.replaceChildren(new Option(error.message, ''));
+    });
+  </script>
+</body>
+</html>
